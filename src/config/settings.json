@@ -1,0 +1,5 @@
+{
+	"data_dir": "data/raw",
+	"output": "output/informe_fiscal.md",
+	"fx_cache": "data/cache/eurofxref-hist.csv"
+}

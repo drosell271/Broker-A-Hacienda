@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local configuration
+.env
+.env.*
+
+# Personal financial data and generated cache
+data/raw/**
+!data/raw/
+!data/raw/.gitkeep
+data/cache/**
+*.csv
+
+# Generated reports
+informe_fiscal.md
+informes/**
+!informes/
+!informes/**/.gitkeep
+output/**
+!output/
+!output/.gitkeep
+
+# Backups and local artifacts
+backup/
+backups/
+*backup*/
+*Backup*/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
