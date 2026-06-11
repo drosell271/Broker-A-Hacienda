@@ -43,22 +43,37 @@ def calcular_impuesto_ahorro(rendimiento_computable, anio=None):
             break
     return impuesto
 
-def exportar_a_markdown(resumen_anual, bloqueos_df, df_cartera, ruta_salida="informe_fiscal.md"):
+
+def _periodo_fiscal(anio):
+    anio = int(anio)
+    return f"{anio}-01-01 a {anio}-12-31"
+
+
+def exportar_a_markdown(
+    resumen_anual,
+    datos_declaracion_valor,
+    datos_declaracion_broker,
+    bloqueos_df,
+    df_cartera,
+    ruta_salida="informe_fiscal.md",
+):
     ruta_salida = Path(ruta_salida)
     ruta_salida.parent.mkdir(parents=True, exist_ok=True)
 
     with open(ruta_salida, "w", encoding="utf-8") as f:
-        f.write("# 📑 Informe Fiscal de Inversiones Corregido (IRPF España)\n\n")
+        f.write("# Informe Fiscal de Inversiones (IRPF España)\n\n")
         f.write("> Informe auxiliar generado automáticamente. Revisa los supuestos de divisa, FIFO y regla de recompra antes de usarlo en Renta Web.\n\n")
         f.write("## 1. Resumen por Año Fiscal (Renta Web)\n\n")
-        f.write("| Año Fiscal | Valor Adquisición | Valor Transmisión | Resultado Bruto | Pérdidas Suspendidas | Pérdidas Liberadas | Rendimiento del Año | Pérdidas Previas Aplicadas | Base tras Compensación | Pérdida Pendiente 4 Años | Est. Impuestos |\n")
-        f.write("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n")
+        f.write("| Año Fiscal | Periodo fiscal considerado | Valor Adquisición | Valor Transmisión | Resultado Bruto | Pérdidas Suspendidas | Pérdidas Liberadas | Rendimiento del Año | Pérdidas Previas Aplicadas | Base tras Compensación | Pérdida Pendiente 4 Años | Est. Impuestos |\n")
+        f.write("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n")
         
         if resumen_anual.empty:
-            f.write("| _Sin ventas computables_ | - | - | - | - | - | - | - | - | - | - |\n")
+            f.write("| _Sin ventas computables_ | - | - | - | - | - | - | - | - | - | - | - |\n")
         else:
             for _, fila in resumen_anual.iterrows():
+                periodo = _periodo_fiscal(fila["Anio_Fiscal"])
                 f.write(f"| **{int(fila['Anio_Fiscal'])}** "
+                        f"| {periodo} "
                         f"| {fila['Valor_Adquisicion']:,.2f} € "
                         f"| {fila['Valor_Transmision']:,.2f} € "
                         f"| {fila['Resultado_Bruto']:,.2f} € "
@@ -70,7 +85,38 @@ def exportar_a_markdown(resumen_anual, bloqueos_df, df_cartera, ruta_salida="inf
                         f"| {fila['Perdida_Pendiente_Compensar_4Anios']:,.2f} € "
                         f"| **{fila['Impuesto_Estimado']:,.2f} €** |\n")
                     
-        f.write("\n## 2. Detalle de Bloqueos Vigentes en Cartera Activa\n")
+        def escribir_tabla_declaracion(datos, texto_vacio):
+            if datos.empty:
+                f.write(f"{texto_vacio}\n\n")
+                return
+
+            for anio, grupo in datos.groupby("Anio_Fiscal", sort=True):
+                f.write(f"### Año {int(anio)} ({_periodo_fiscal(anio)})\n\n")
+                f.write("| Bróker | Concepto (0328) | Apartado Renta Web | Valor Transmisión (0329) | Valor Adquisición (0330) | Resultado Bruto | Pérdidas Suspendidas | Pérdidas Liberadas | Resultado Computable |\n")
+                f.write("| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n")
+                for _, fila in grupo.iterrows():
+                    f.write(
+                        f"| {fila['Broker']} "
+                        f"| {fila['Concepto_0328']} "
+                        f"| {fila['Apartado_Renta_Web']} "
+                        f"| {fila['Valor_Transmision']:,.2f} € "
+                        f"| {fila['Valor_Adquisicion']:,.2f} € "
+                        f"| {fila['Resultado_Bruto']:,.2f} € "
+                        f"| {fila['Perdidas_Suspendidas']:,.2f} € "
+                        f"| {fila['Perdidas_Liberadas']:,.2f} € "
+                        f"| **{fila['Resultado_Computable']:,.2f} €** |\n"
+                    )
+                f.write("\n")
+
+        f.write("\n## 2. Datos para Renta Web - Modo por Valor\n\n")
+        f.write("Renta Web 2025: en el apartado F2 de acciones negociadas, usa **0328** para el valor/ticker, **0329** para **Valor Transmisión** y **0330** para **Valor Adquisición**. **Resultado Computable** queda como comprobación después de pérdidas suspendidas o liberadas; las sumas finales del bloque son **0339** para ganancias y **0340** para pérdidas.\n\n")
+        escribir_tabla_declaracion(datos_declaracion_valor, "Sin ventas computables por valor.")
+
+        f.write("\n## 3. Datos para Renta Web - Modo por Bróker\n\n")
+        f.write("Vista agregada por bróker. En **0328** se usa el bróker como concepto que engloba todos los valores de ese bróker en el año. La compensación de pérdidas pendientes se aplica a nivel anual en el resumen anterior.\n\n")
+        escribir_tabla_declaracion(datos_declaracion_broker, "Sin ventas computables por bróker.")
+
+        f.write("\n## 4. Detalle de Bloqueos Vigentes en Cartera Activa\n")
         f.write("Pérdidas retenidas que siguen congeladas porque mantienes acciones compradas a día de hoy:\n\n")
         
         if not bloqueos_df.empty:
@@ -81,7 +127,7 @@ def exportar_a_markdown(resumen_anual, bloqueos_df, df_cartera, ruta_salida="inf
         else:
             f.write("✅ **Ninguno.** Todas las pérdidas de los tickers cerrados han sido liberadas por liquidación total.\n\n")
             
-        f.write("## 3. Cartera Abierta Real\n")
+        f.write("## 5. Cartera Abierta Real\n")
         if not df_cartera.empty:
             f.write("| Bróker | Ticker | Acciones | Precio Medio | Coste Total |\n")
             f.write("| :--- | :--- | :---: | :---: | :---: |\n")
@@ -162,6 +208,57 @@ def aplicar_compensacion_perdidas_pendientes(resumen_anual):
     return resumen, detalle_pendientes
 
 
+def construir_datos_declaracion(df_ventas, modo):
+    if df_ventas.empty:
+        return pd.DataFrame()
+
+    datos = df_ventas.copy()
+    datos["Anio_Fiscal"] = datos["Fecha_Venta"].dt.year
+
+    if modo == "valor":
+        columnas_grupo = ["Anio_Fiscal", "Broker", "Ticker"]
+        orden = ["Anio_Fiscal", "Broker", "Concepto_0328"]
+    elif modo == "broker":
+        columnas_grupo = ["Anio_Fiscal", "Broker"]
+        orden = ["Anio_Fiscal", "Broker"]
+    else:
+        raise ValueError(f"Modo de declaracion no soportado: {modo}")
+
+    resumen = datos.groupby(columnas_grupo).agg(
+        Valor_Transmision=("Valor_Transmision", "sum"),
+        Valor_Adquisicion=("Valor_Adquisicion", "sum"),
+        Resultado_Bruto=("Resultado", "sum"),
+        Perdidas_Suspendidas=("Perdida_Suspendida", "sum"),
+        Perdidas_Liberadas=("Perdida_Liberada", "sum"),
+    ).reset_index()
+
+    if modo == "valor":
+        resumen["Concepto_0328"] = resumen["Ticker"]
+    else:
+        resumen["Concepto_0328"] = resumen["Broker"] + " - todos los valores"
+
+    resumen["Resultado_Computable"] = (
+        resumen["Resultado_Bruto"]
+        + resumen["Perdidas_Suspendidas"]
+        - resumen["Perdidas_Liberadas"]
+    )
+    resumen["Apartado_Renta_Web"] = "Acciones admitidas a negociación"
+
+    columnas = [
+        "Anio_Fiscal",
+        "Broker",
+        "Concepto_0328",
+        "Apartado_Renta_Web",
+        "Valor_Transmision",
+        "Valor_Adquisicion",
+        "Resultado_Bruto",
+        "Perdidas_Suspendidas",
+        "Perdidas_Liberadas",
+        "Resultado_Computable",
+    ]
+    return resumen[columnas].sort_values(orden).reset_index(drop=True)
+
+
 def generar_informe_fiscal(
     directorio_datos="data/raw",
     ruta_salida="informe_fiscal.md",
@@ -184,6 +281,8 @@ def generar_informe_fiscal(
         actualizar_fx=actualizar_fx,
     )
     df_ventas, cartera_final = calcular_renta(df_con_eur)
+    datos_declaracion_valor = construir_datos_declaracion(df_ventas, modo="valor")
+    datos_declaracion_broker = construir_datos_declaracion(df_ventas, modo="broker")
 
     resumen_anual, bloqueos_df = pd.DataFrame(), pd.DataFrame()
     
@@ -233,7 +332,14 @@ def generar_informe_fiscal(
         if not df_bloqueos_reales.empty:
             bloqueos_df = df_bloqueos_reales.groupby('Ticker').agg({'Perdida_Suspendida': 'sum'}).reset_index()
 
-    ruta_generada = exportar_a_markdown(resumen_anual, bloqueos_df, df_cartera, ruta_salida) if exportar else None
+    ruta_generada = exportar_a_markdown(
+        resumen_anual,
+        datos_declaracion_valor,
+        datos_declaracion_broker,
+        bloqueos_df,
+        df_cartera,
+        ruta_salida,
+    ) if exportar else None
     anios_sin_escala = []
     if not resumen_anual.empty:
         anios_sin_escala = sorted(set(resumen_anual['Anio_Fiscal'].astype(int)) - set(TRAMOS_AHORRO_POR_ANIO))
@@ -242,6 +348,8 @@ def generar_informe_fiscal(
         'df_operaciones': df_all,
         'df_ventas': df_ventas,
         'resumen_anual': resumen_anual,
+        'datos_declaracion_valor': datos_declaracion_valor,
+        'datos_declaracion_broker': datos_declaracion_broker,
         'bloqueos_df': bloqueos_df,
         'detalle_perdidas_pendientes': detalle_perdidas_pendientes,
         'df_cartera': df_cartera,
@@ -266,6 +374,8 @@ def imprimir_resumen_consola(resultado):
     df_operaciones = resultado['df_operaciones']
     df_cartera = resultado['df_cartera']
     bloqueos_df = resultado['bloqueos_df']
+    datos_declaracion_valor = resultado['datos_declaracion_valor']
+    datos_declaracion_broker = resultado['datos_declaracion_broker']
 
     print("\nResumen de carga")
     print(f"- Operaciones IBKR: {conteos['IBKR']}")
@@ -273,7 +383,7 @@ def imprimir_resumen_consola(resultado):
     print(f"- Total operaciones: {conteos['Total']}")
 
     if not df_operaciones.empty:
-        print(f"- Rango de fechas: {df_operaciones['TradeDate'].min().date()} a {df_operaciones['TradeDate'].max().date()}")
+        print(f"- Rango de fechas en CSVs: {df_operaciones['TradeDate'].min().date()} a {df_operaciones['TradeDate'].max().date()}")
 
     if conteos['Operaciones_FX_BCE'] > 0:
         print(
@@ -302,6 +412,7 @@ def imprimir_resumen_consola(resultado):
                 'Impuesto_Estimado',
             ]
         ].copy()
+        tabla['Periodo_Fiscal'] = tabla['Anio_Fiscal'].map(_periodo_fiscal)
         tabla.columns = [
             'Año',
             'Resultado bruto',
@@ -312,14 +423,108 @@ def imprimir_resumen_consola(resultado):
             'Base tras compensación',
             'Pérdida pendiente 4 años',
             'Impuesto estimado',
+            'Periodo fiscal',
+        ]
+        tabla = tabla[
+            [
+                'Año',
+                'Periodo fiscal',
+                'Resultado bruto',
+                'Pérdidas suspendidas',
+                'Pérdidas liberadas',
+                'Rendimiento año',
+                'Pérdidas previas aplicadas',
+                'Base tras compensación',
+                'Pérdida pendiente 4 años',
+                'Impuesto estimado',
+            ]
         ]
         for columna in tabla.columns[1:]:
-            tabla[columna] = tabla[columna].map(_formatear_eur)
+            if columna != 'Periodo fiscal':
+                tabla[columna] = tabla[columna].map(_formatear_eur)
         print(tabla.to_string(index=False))
+
+    def imprimir_tabla_declaracion(titulo, datos, texto_vacio):
+        print(f"\n{titulo}")
+        if datos.empty:
+            print(texto_vacio)
+            return
+
+        tabla_declaracion = datos[
+            [
+                'Anio_Fiscal',
+                'Broker',
+                'Concepto_0328',
+                'Valor_Transmision',
+                'Valor_Adquisicion',
+                'Resultado_Computable',
+            ]
+        ].copy()
+        for anio, grupo in tabla_declaracion.groupby('Anio_Fiscal', sort=True):
+            tabla_anio = grupo[
+                [
+                    'Broker',
+                    'Concepto_0328',
+                    'Valor_Transmision',
+                    'Valor_Adquisicion',
+                    'Resultado_Computable',
+                ]
+            ].copy()
+            tabla_anio.columns = [
+                'Bróker',
+                'Concepto (0328)',
+                'Valor transmisión (0329)',
+                'Valor adquisición (0330)',
+                'Resultado computable',
+            ]
+            for columna in ['Valor transmisión (0329)', 'Valor adquisición (0330)', 'Resultado computable']:
+                tabla_anio[columna] = tabla_anio[columna].map(_formatear_eur)
+            print(f"\nAño {int(anio)} ({_periodo_fiscal(anio)})")
+            print(tabla_anio.to_string(index=False))
+
+    imprimir_tabla_declaracion(
+        "Datos para Renta Web - modo por valor",
+        datos_declaracion_valor,
+        "Sin ventas computables por valor.",
+    )
+    imprimir_tabla_declaracion(
+        "Datos para Renta Web - modo por bróker",
+        datos_declaracion_broker,
+        "Sin ventas computables por bróker.",
+    )
 
     print("\nCartera abierta")
     print(f"- Posiciones abiertas: {len(df_cartera)}")
     print(f"- Tickers con pérdidas bloqueadas vigentes: {len(bloqueos_df)}")
+    if df_cartera.empty:
+        print("Sin posiciones abiertas.")
+    else:
+        tabla_cartera = df_cartera[
+            [
+                'Broker',
+                'Ticker',
+                'Acciones',
+                'Precio_Medio (€)',
+                'Coste_Total (€)',
+            ]
+        ].copy()
+        tabla_cartera.columns = [
+            'Bróker',
+            'Ticker',
+            'Acciones',
+            'Precio medio',
+            'Coste total',
+        ]
+        for columna in ['Precio medio', 'Coste total']:
+            tabla_cartera[columna] = tabla_cartera[columna].map(_formatear_eur)
+        print(tabla_cartera.to_string(index=False))
+
+    if not bloqueos_df.empty:
+        tabla_bloqueos = bloqueos_df.copy()
+        tabla_bloqueos.columns = ['Ticker', 'Pérdida retenida']
+        tabla_bloqueos['Pérdida retenida'] = tabla_bloqueos['Pérdida retenida'].map(_formatear_eur)
+        print("\nPérdidas bloqueadas vigentes")
+        print(tabla_bloqueos.to_string(index=False))
 
 
 def _estilo_importe(valor):
@@ -336,6 +541,8 @@ def imprimir_resumen_rich(resultado):
     df_operaciones = resultado['df_operaciones']
     df_cartera = resultado['df_cartera']
     bloqueos_df = resultado['bloqueos_df']
+    datos_declaracion_valor = resultado['datos_declaracion_valor']
+    datos_declaracion_broker = resultado['datos_declaracion_broker']
 
     carga = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     carga.add_column("Dato", style="cyan")
@@ -345,7 +552,7 @@ def imprimir_resumen_rich(resultado):
     carga.add_row("Total operaciones", str(conteos['Total']))
     if not df_operaciones.empty:
         carga.add_row(
-            "Rango de fechas",
+            "Rango de fechas en CSVs",
             f"{df_operaciones['TradeDate'].min().date()} a {df_operaciones['TradeDate'].max().date()}",
         )
     carga.add_row("FX via BCE", str(conteos['Operaciones_FX_BCE']))
@@ -376,6 +583,7 @@ def imprimir_resumen_rich(resultado):
     else:
         tabla = Table(title="Resumen fiscal", box=box.ROUNDED, header_style="bold cyan")
         tabla.add_column("Año", justify="right")
+        tabla.add_column("Periodo fiscal")
         tabla.add_column("Resultado bruto", justify="right")
         tabla.add_column("Pérdidas susp.", justify="right")
         tabla.add_column("Pérdidas lib.", justify="right")
@@ -390,6 +598,7 @@ def imprimir_resumen_rich(resultado):
             base_compensada = float(fila['Base_Ahorro_Tras_Compensacion'])
             tabla.add_row(
                 str(int(fila['Anio_Fiscal'])),
+                _periodo_fiscal(fila['Anio_Fiscal']),
                 f"[{_estilo_importe(resultado_bruto)}]{_formatear_eur(resultado_bruto)}[/]",
                 _formatear_eur(float(fila['Perdidas_Suspendidas'])),
                 _formatear_eur(float(fila['Perdidas_Liberadas'])),
@@ -401,12 +610,80 @@ def imprimir_resumen_rich(resultado):
             )
         console.print(tabla)
 
+    def imprimir_tabla_declaracion_rich(titulo, datos, texto_vacio):
+        if datos.empty:
+            console.print(Panel(texto_vacio, title=titulo, border_style="yellow"))
+            return
+
+        for anio, grupo in datos.groupby('Anio_Fiscal', sort=True):
+            tabla_declaracion = Table(
+                title=f"{titulo} - Año {int(anio)} ({_periodo_fiscal(anio)})",
+                box=box.ROUNDED,
+                header_style="bold cyan",
+            )
+            tabla_declaracion.add_column("Bróker")
+            tabla_declaracion.add_column("Concepto (0328)")
+            tabla_declaracion.add_column("Valor transmisión (0329)", justify="right")
+            tabla_declaracion.add_column("Valor adquisición (0330)", justify="right")
+            tabla_declaracion.add_column("Resultado computable", justify="right")
+            for _, fila in grupo.iterrows():
+                resultado_computable = float(fila['Resultado_Computable'])
+                tabla_declaracion.add_row(
+                    fila['Broker'],
+                    fila['Concepto_0328'],
+                    _formatear_eur(float(fila['Valor_Transmision'])),
+                    _formatear_eur(float(fila['Valor_Adquisicion'])),
+                    f"[{_estilo_importe(resultado_computable)}]{_formatear_eur(resultado_computable)}[/]",
+                )
+            console.print(tabla_declaracion)
+
+    imprimir_tabla_declaracion_rich(
+        "Renta Web - modo por valor",
+        datos_declaracion_valor,
+        "Sin ventas computables por valor.",
+    )
+    imprimir_tabla_declaracion_rich(
+        "Renta Web - modo por bróker",
+        datos_declaracion_broker,
+        "Sin ventas computables por bróker.",
+    )
+
     cartera = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     cartera.add_column("Dato", style="cyan")
     cartera.add_column("Valor")
     cartera.add_row("Posiciones abiertas", str(len(df_cartera)))
     cartera.add_row("Tickers con pérdidas bloqueadas vigentes", str(len(bloqueos_df)))
     console.print(Panel(cartera, title="Cartera abierta", border_style="cyan"))
+
+    if not df_cartera.empty:
+        tabla_cartera = Table(title="Detalle de cartera abierta", box=box.ROUNDED, header_style="bold cyan")
+        tabla_cartera.add_column("Bróker")
+        tabla_cartera.add_column("Ticker")
+        tabla_cartera.add_column("Acciones", justify="right")
+        tabla_cartera.add_column("Precio medio", justify="right")
+        tabla_cartera.add_column("Coste total", justify="right")
+        for _, fila in df_cartera.iterrows():
+            tabla_cartera.add_row(
+                fila['Broker'],
+                fila['Ticker'],
+                str(fila['Acciones']),
+                _formatear_eur(float(fila['Precio_Medio (€)'])),
+                _formatear_eur(float(fila['Coste_Total (€)'])),
+            )
+        console.print(tabla_cartera)
+    else:
+        console.print(Panel("Sin posiciones abiertas.", title="Detalle de cartera abierta", border_style="yellow"))
+
+    if not bloqueos_df.empty:
+        tabla_bloqueos = Table(title="Pérdidas bloqueadas vigentes", box=box.ROUNDED, header_style="bold cyan")
+        tabla_bloqueos.add_column("Ticker")
+        tabla_bloqueos.add_column("Pérdida retenida", justify="right")
+        for _, fila in bloqueos_df.iterrows():
+            tabla_bloqueos.add_row(
+                fila['Ticker'],
+                _formatear_eur(float(fila['Perdida_Suspendida'])),
+            )
+        console.print(tabla_bloqueos)
 
 
 def _mostrar_cabecera():

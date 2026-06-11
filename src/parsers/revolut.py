@@ -11,7 +11,7 @@ def cargar_y_limpiar_revolut(directorio_base="data/raw"):
     lista_dfs = []
     for archivo in archivos:
         try:
-            df = pd.read_csv(archivo)
+            df = pd.read_csv(archivo).dropna(axis=1, how="all")
             lista_dfs.append(df)
         except Exception as e:
             print(f"⚠️ Error leyendo {archivo}: {e}")
@@ -42,7 +42,10 @@ def cargar_y_limpiar_revolut(directorio_base="data/raw"):
     # Comisiones en Revolut son 0 (van implícitas o en tier separado)
     df_final['IBCommission'] = 0.0
     df_final['IBCommissionCurrency'] = df_final['CurrencyPrimary']
-    df_final['FX_Rate'] = pd.to_numeric(df_final['FX Rate'], errors='coerce')
+    if 'FX Rate' in df_final.columns:
+        df_final['FX_Rate'] = pd.to_numeric(df_final['FX Rate'], errors='coerce')
+    else:
+        df_final['FX_Rate'] = float("nan")
     
     columnas_finales = [
         'Broker', 'Buy/Sell', 'Symbol', 'Quantity', 

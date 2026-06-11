@@ -11,7 +11,7 @@ def cargar_y_limpiar_ibkr(directorio_base="data/raw"):
     lista_dfs = []
     for archivo in archivos:
         try:
-            df = pd.read_csv(archivo)
+            df = pd.read_csv(archivo).dropna(axis=1, how="all")
             lista_dfs.append(df)
         except Exception as e:
             print(f"⚠️ Error leyendo {archivo}: {e}")
@@ -44,7 +44,7 @@ def cargar_y_limpiar_ibkr(directorio_base="data/raw"):
     elif 'FX Rate' in df_final.columns:
         df_final['FX_Rate'] = pd.to_numeric(df_final['FX Rate'], errors='coerce')
     else:
-        df_final['FX_Rate'] = None
+        df_final['FX_Rate'] = float("nan")
     
     columnas_finales = [
         'Broker', 'Buy/Sell', 'Symbol', 'Quantity', 
