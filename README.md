@@ -62,7 +62,7 @@ Las rutas se configuran en `src/config/settings.json`:
 {
 	"data_dir": "data/raw",
 	"output": "output/informe_fiscal.md",
-	"fx_cache": "data/cache/ecb/eurofxref-hist.csv"
+	"fx_cache": "cache/eurofxref-hist.csv"
 }
 ```
 
