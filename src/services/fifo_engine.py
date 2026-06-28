@@ -3,6 +3,24 @@ from collections import deque
 
 PRECISION = 8 
 
+
+def _posicion_abierta(cartera, broker, ticker):
+    clave = (broker, ticker)
+    if clave not in cartera:
+        return False
+    return any(lote.get('cantidad', 0) > 0 for lote in cartera[clave])
+
+
+def _indice_ultima_venta(df_ventas, broker, ticker):
+    ventas_ticker = df_ventas[
+        (df_ventas['Broker'] == broker) &
+        (df_ventas['Ticker'] == ticker)
+    ]
+    if ventas_ticker.empty:
+        return None
+    return ventas_ticker['Fecha_Venta'].idxmax()
+
+
 def _procesar_compra(cartera, registro_compras, broker, ticker, fecha, cantidad, precio_eur, comision_eur):
     clave = (broker, ticker)
     coste_total = (cantidad * precio_eur) + comision_eur
@@ -61,52 +79,46 @@ def _procesar_venta(cartera, ventas_realizadas, broker, ticker, fecha, cantidad_
             'Perdida_Liberada': 0.0
         })
 
-def _aplicar_regla_dos_meses(df_ventas, df_todas_operaciones):
+def _aplicar_regla_dos_meses(df_ventas, df_todas_operaciones, cartera=None):
     """
-    Aplica la regla de los 2 meses de forma estricta. Solo suspende si hay una 
-    RECOMPRA posterior o si se mantienen acciones homogéneas concurrentes.
+    Aplica la regla de los 2 meses de forma estricta.
+    Una pérdida sólo se suspende si hay una recompra real en la ventana de riesgo.
+    Sólo se libera cuando la posición del ticker quede realmente cerrada.
     """
     if df_ventas.empty:
         return df_ventas
 
-    # Agrupamos todas las compras reales del histórico para comprobar recompras verdaderas
     compras_reales = df_todas_operaciones[df_todas_operaciones['Buy/Sell'] == 'BUY'].copy()
 
     for idx, venta in df_ventas.iterrows():
-        if venta['Resultado'] < -0.01:  
+        if venta['Resultado'] < -0.01:
             t_ticker = venta['Ticker']
             f_venta = venta['Fecha_Venta']
             cant_vendida = venta['Cantidad_Vendida']
-            
+
             fecha_limite_atras = f_venta - pd.Timedelta(days=60)
             fecha_limite_adelante = f_venta + pd.Timedelta(days=60)
-            
-            # Buscamos compras en la ventana de riesgo (+/- 60 días)
+
             compras_en_ventana = compras_reales[
-                (compras_reales['Symbol'] == t_ticker) & 
-                (compras_reales['TradeDate'] >= fecha_limite_atras) & 
+                (compras_reales['Symbol'] == t_ticker) &
+                (compras_reales['TradeDate'] >= fecha_limite_atras) &
                 (compras_reales['TradeDate'] <= fecha_limite_adelante)
             ]
-            
-            # FISCALIDAD REAL: Solo hay recompra si el total comprado en la ventana de 120 días
-            # supera las acciones vendidas, o si hay compras posteriores a la venta.
+
             total_comprado_en_ventana = compras_en_ventana['Quantity'].sum()
-            
-            # Si el total comprado es igual o menor a lo vendido y no hay compras posteriores a la fecha de venta,
-            # significa que es el mismo lote que entra y sale (Day trade / Swing trade cerrado). No se suspende.
             compras_posteriores = compras_en_ventana[compras_en_ventana['TradeDate'] > f_venta]
-            
+
             if not compras_posteriores.empty or total_comprado_en_ventana > cant_vendida:
-                # Existe una recompra real que bloquea la pérdida
                 monto_perdida = abs(venta['Resultado'])
                 df_ventas.at[idx, 'Perdida_Suspendida'] = monto_perdida
-                
-                # Desbloqueo: Al final del histórico sabemos que la posición está a 0 para este ticker.
-                # Buscamos la última venta de este ticker en el histórico. Esa venta libera la pérdida.
-                ultima_venta_idx = df_ventas[df_ventas['Ticker'] == t_ticker]['Fecha_Venta'].idxmax()
-                # La liberamos en el año de la liquidación definitiva
-                df_ventas.at[ultima_venta_idx, 'Perdida_Liberada'] += monto_perdida
-                
+
+                if cartera is not None:
+                    broker = venta.get('Broker', 'Desconocido')
+                    if not _posicion_abierta(cartera, broker, t_ticker):
+                        ultima_venta_idx = _indice_ultima_venta(df_ventas, broker, t_ticker)
+                        if ultima_venta_idx is not None:
+                            df_ventas.at[ultima_venta_idx, 'Perdida_Liberada'] += monto_perdida
+
     return df_ventas
 
 def calcular_renta(df_con_eur):
@@ -138,8 +150,7 @@ def calcular_renta(df_con_eur):
             _procesar_venta(cartera, ventas_realizadas, broker, ticker, fecha, cantidad, precio_eur, comision_eur)
 
     df_ventas = pd.DataFrame(ventas_realizadas)
-    df_ventas = _aplicar_regla_dos_meses(df_ventas, df)
-    
     cartera_limpia = {k: v for k, v in cartera.items() if len(v) > 0}
-    
+    df_ventas = _aplicar_regla_dos_meses(df_ventas, df, cartera)
+
     return df_ventas, cartera_limpia
