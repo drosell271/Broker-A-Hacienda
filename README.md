@@ -73,6 +73,7 @@ main.py              # entrada de consola
 src/config/          # configuración
 src/parsers/         # lectura de CSVs
 src/services/        # divisas BCE, FIFO y cálculo fiscal
+tests/               # pruebas de regresión del cálculo fiscal
 data/raw/            # CSVs de entrada
 output/              # informes generados
 ```
@@ -203,6 +204,24 @@ Las casillas pueden cambiar entre campañas. Comprueba el nombre del apartado si
 
 La compensación de pérdidas pendientes de la base del ahorro sigue el plazo de cuatro ejercicios indicado por AEAT.
 
+### Regla de los dos meses
+
+La regla se aplica sobre ventas con pérdida. El programa marca una pérdida como `Perdida_Suspendida` si detecta compras del mismo ticker dentro de la ventana de riesgo de 60 días antes o después de la venta, según la lógica básica implementada.
+
+La suspensión se prorratea por acciones. Si vendes 100 acciones con una pérdida de 1.000 € y sólo hay 40 acciones recompradas o mantenidas que bloquean la pérdida, el informe suspende 400 €, no los 1.000 € completos.
+
+La pérdida suspendida queda asociada a los lotes FIFO de compra que provocan el bloqueo. Cuando esos lotes se venden después, el programa marca `Perdida_Liberada` de forma proporcional a las acciones transmitidas. Si sólo se vende parte de la recompra, sólo se libera esa parte de la pérdida. Si al cierre del histórico quedan acciones bloqueantes abiertas, la pérdida pendiente neta aparece en `Detalle de Bloqueos Vigentes en Cartera Activa`.
+
+Por eso `Pérdidas Suspendidas` y `Pérdidas Liberadas` no tienen por qué coincidir en un mismo año. También pueden coincidir dentro del mismo ejercicio si las acciones recompradas se transmiten posteriormente durante ese mismo año.
+
+## Pruebas
+
+Ejecutar las pruebas de regresión:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
 ## Referencias
 
 - AEAT, acciones admitidas a negociación: https://sede.agenciatributaria.gob.es/Sede/Ayuda/25Presentacion/100/7_6_6_2/ganancias_perdidas_patrimoniales_derivadas_acciones.html
@@ -216,7 +235,7 @@ La compensación de pérdidas pendientes de la base del ahorro sigue el plazo de
 ## Limitaciones
 
 - FIFO por `(bróker, ticker)`, no consolidado entre brokers.
-- Detección básica de recompras.
+- Detección básica de recompras con prorrateo por acciones y liberación por venta posterior de los lotes bloqueantes según el histórico cargado.
 - No incluye dividendos, intereses, retenciones, fondos, ETFs, opciones, criptomonedas ni divisas como activo independiente.
 - Las pérdidas pendientes solo incluyen lo que aparece en los CSV cargados.
 

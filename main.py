@@ -325,12 +325,20 @@ def generar_informe_fiscal(
             })
     df_cartera = pd.DataFrame(posiciones_abiertas)
 
-    # Identificar si queda algún bloqueo real (solo si el ticker está en cartera activa)
+    # Identificar bloqueos pendientes netos en tickers que siguen en cartera activa.
     if not df_cartera.empty and not df_ventas.empty:
         tickers_activos = df_cartera['Ticker'].unique()
-        df_bloqueos_reales = df_ventas[(df_ventas['Perdida_Suspendida'] > 0) & (df_ventas['Ticker'].isin(tickers_activos))]
+        df_bloqueos_reales = df_ventas[df_ventas['Ticker'].isin(tickers_activos)].copy()
         if not df_bloqueos_reales.empty:
-            bloqueos_df = df_bloqueos_reales.groupby('Ticker').agg({'Perdida_Suspendida': 'sum'}).reset_index()
+            bloqueos_df = df_bloqueos_reales.groupby('Ticker').agg(
+                Perdida_Suspendida=('Perdida_Suspendida', 'sum'),
+                Perdida_Liberada=('Perdida_Liberada', 'sum'),
+            ).reset_index()
+            bloqueos_df['Perdida_Suspendida'] = (
+                bloqueos_df['Perdida_Suspendida'] - bloqueos_df['Perdida_Liberada']
+            )
+            bloqueos_df = bloqueos_df[bloqueos_df['Perdida_Suspendida'] > 0.005]
+            bloqueos_df = bloqueos_df[['Ticker', 'Perdida_Suspendida']].reset_index(drop=True)
 
     ruta_generada = exportar_a_markdown(
         resumen_anual,
