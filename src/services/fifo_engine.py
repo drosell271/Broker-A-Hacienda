@@ -4,6 +4,10 @@ from collections import deque
 PRECISION = 8 
 
 
+class DatosInsuficientesError(ValueError):
+    """Se lanza cuando faltan compras para valorar una venta por FIFO."""
+
+
 def _procesar_compra(cartera, registro_compras, broker, ticker, fecha, cantidad, precio_eur, comision_eur):
     clave = (broker, ticker)
     coste_total = (cantidad * precio_eur) + comision_eur
@@ -32,10 +36,19 @@ def _procesar_venta(cartera, ventas_realizadas, broker, ticker, fecha, cantidad_
     clave = (broker, ticker)
     ingreso_total_neto_eur = (cantidad_a_vender * precio_eur) - comision_eur
     ingreso_unitario_neto = ingreso_total_neto_eur / cantidad_a_vender if cantidad_a_vender > 0 else 0
-    
-    if clave not in cartera or len(cartera[clave]) == 0:
-        print(f"⚠️ ADVERTENCIA: Venta sin stock previo de {ticker} en {broker}. Ignorando...")
-        return
+
+    cantidad_disponible = 0.0
+    if clave in cartera:
+        cantidad_disponible = round(sum(lote['cantidad'] for lote in cartera[clave]), PRECISION)
+
+    if round(cantidad_disponible - cantidad_a_vender, PRECISION) < 0:
+        cantidad_faltante = round(cantidad_a_vender - cantidad_disponible, PRECISION)
+        raise DatosInsuficientesError(
+            "Faltan compras previas para valorar una venta por FIFO: "
+            f"{broker} {ticker}, fecha {fecha}, venta {cantidad_a_vender}, "
+            f"disponible {cantidad_disponible}, faltante {cantidad_faltante}. "
+            "Carga tambien las compras historicas anteriores al ejercicio o una posicion inicial con coste fiscal."
+        )
         
     while round(cantidad_a_vender, PRECISION) > 0 and len(cartera[clave]) > 0:
         lote_mas_antiguo = cartera[clave][0]
@@ -92,8 +105,8 @@ def _aplicar_regla_dos_meses_basica(df_ventas, df_todas_operaciones):
         if cant_vendida <= 0:
             continue
 
-        fecha_limite_atras = f_venta - pd.Timedelta(days=60)
-        fecha_limite_adelante = f_venta + pd.Timedelta(days=60)
+        fecha_limite_atras = f_venta - pd.DateOffset(months=2)
+        fecha_limite_adelante = f_venta + pd.DateOffset(months=2)
         compras_en_ventana = compras_reales[
             (compras_reales['Symbol'] == t_ticker) &
             (compras_reales['TradeDate'] >= fecha_limite_atras) &
@@ -152,8 +165,8 @@ def _aplicar_regla_dos_meses(df_ventas, df_todas_operaciones, cartera=None, df_c
 
         perdida_unitaria = abs(float(venta['Resultado'])) / cantidad_vendida
         cantidad_pendiente = cantidad_vendida
-        fecha_limite_atras = fecha_venta - pd.Timedelta(days=60)
-        fecha_limite_adelante = fecha_venta + pd.Timedelta(days=60)
+        fecha_limite_atras = fecha_venta - pd.DateOffset(months=2)
+        fecha_limite_adelante = fecha_venta + pd.DateOffset(months=2)
 
         compras_ticker = df_compras[
             (df_compras['Broker'] == broker) &

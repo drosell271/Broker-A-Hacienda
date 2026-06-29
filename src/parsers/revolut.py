@@ -14,7 +14,7 @@ def cargar_y_limpiar_revolut(directorio_base="data/raw"):
             df = pd.read_csv(archivo).dropna(axis=1, how="all")
             lista_dfs.append(df)
         except Exception as e:
-            print(f"⚠️ Error leyendo {archivo}: {e}")
+            print(f"AVISO: error leyendo {archivo}: {e}")
             
     if not lista_dfs:
         return pd.DataFrame()
