@@ -102,8 +102,7 @@ def barra_ascii(valor, max_abs, ancho=24):
         return ""
     longitud = int(round((abs(valor) / max_abs) * ancho))
     longitud = max(1, min(ancho, longitud)) if abs(valor) > 0.005 else 0
-    simbolo = "#" if valor >= 0 else "-"
-    return simbolo * longitud
+    return "-" * longitud
 
 
 def tabla_grafico_markdown(datos, titulo, texto_vacio, limite=None, ancho=28):
